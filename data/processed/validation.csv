@@ -1,0 +1,31 @@
+indicator,unit,reference,computed,source,difference,within_rounding
+Perda líquida de áreas naturais (nível 0 Natural),Mha,111.7,111.74067878712714,Estatísticas oficiais 30 m (bioma x UF),0.0406787871271348,TRUE
+Perda de áreas naturais / área do país,%,13,13.13538666813751,Estatísticas oficiais 30 m (bioma x UF),0.1353866681375102,TRUE
+Perda líquida só de vegetação nativa,Mha,NA,108.37326455361712,Estatísticas oficiais 30 m (bioma x UF),NA,NA
+Perda bruta de vegetação nativa (transições),Mha,NA,130.31016744436383,Estatísticas oficiais 30 m (bioma x UF),NA,NA
+Ganho líquido de pastagem,Mha,62.7,62.74070478302984,Estatísticas oficiais 30 m (bioma x UF),0.040704783029838154,TRUE
+Ganho líquido de agricultura (sem silvicultura),Mha,44,44.03472534183962,Estatísticas oficiais 30 m (bioma x UF),0.03472534183961784,TRUE
+Ganho líquido de silvicultura,Mha,NA,7.38495700067532,Estatísticas oficiais 30 m (bioma x UF),NA,NA
+Perda de vegetação nativa: Amazônia,Mha,52.1,52.07050992777359,Estatísticas oficiais 30 m (bioma x UF),-0.02949007222640887,TRUE
+Perda de vegetação nativa: Cerrado,Mha,40.5,40.46312095929533,Estatísticas oficiais 30 m (bioma x UF),-0.03687904070466885,TRUE
+Perda de vegetação nativa: Caatinga,Mha,9.2,9.186896800181405,Estatísticas oficiais 30 m (bioma x UF),-0.013103199818594646,TRUE
+Perda de vegetação nativa: Mata Atlântica,Mha,4.4,4.39878853891927,Estatísticas oficiais 30 m (bioma x UF),-0.0012114610807305581,TRUE
+Perda de vegetação nativa: Pampa,Mha,NA,3.7627737163403463,Estatísticas oficiais 30 m (bioma x UF),NA,NA
+Perda de vegetação nativa: Pantanal,Mha,NA,-1.5088253888930454,Estatísticas oficiais 30 m (bioma x UF),NA,NA
+Pampa: cobertura nativa em 1985,%,64,63.93007061695079,Estatísticas oficiais 30 m (bioma x UF),-0.0699293830492067,TRUE
+Pampa: cobertura nativa em 2024,%,44.5,44.527837924697735,Estatísticas oficiais 30 m (bioma x UF),0.02783792469773516,TRUE
+Usinas fotovoltaicas na Caatinga (2024),%,62,61.821158008984135,Estatísticas oficiais 30 m (bioma x UF),-0.17884199101586518,TRUE
+"Mapa 1 km (majoritária): Vegetação nativa, 1985",%,77.7476421525065,79.97949505045736,Comparação com a estatística oficial 30 m,2.2318528979508585,NA
+"Mapa 1 km (majoritária): Pastagem, 1985",%,10.841631790191162,11.297555814654265,Comparação com a estatística oficial 30 m,0.4559240244631031,NA
+"Mapa 1 km (majoritária): Agricultura e silvicultura, 1985",%,2.373500216777013,2.4450368612710016,Comparação com a estatística oficial 30 m,0.07153664449398844,NA
+"Mapa 1 km (majoritária): Mosaico de usos, 1985",%,6.088108379803131,3.6891127956643976,Comparação com a estatística oficial 30 m,-2.3989955841387336,NA
+"Mapa 1 km (majoritária): Área urbana, 1985",%,0.2117152917169613,0.18838997210279246,Comparação com a estatística oficial 30 m,-0.023325319614168838,NA
+"Mapa 1 km (majoritária): Outros (água, mineração e demais), 1985",%,2.7374021690051746,2.40040950585018,Comparação com a estatística oficial 30 m,-0.33699266315499443,NA
+"Mapa 1 km (majoritária): Vegetação nativa, 2024",%,65.00810316051574,65.89971527249837,Comparação com a estatística oficial 30 m,0.8916121119826244,NA
+"Mapa 1 km (majoritária): Pastagem, 2024",%,18.21695316913649,19.05745218890953,Comparação com a estatística oficial 30 m,0.8404990197730378,NA
+"Mapa 1 km (majoritária): Agricultura e silvicultura, 2024",%,8.418008065243267,9.261602841538084,Comparação com a estatística oficial 30 m,0.8435947762948164,NA
+"Mapa 1 km (majoritária): Mosaico de usos, 2024",%,5.475555083747848,3.1158699385437467,Comparação com a estatística oficial 30 m,-2.359685145204101,NA
+"Mapa 1 km (majoritária): Área urbana, 2024",%,0.5346104870878144,0.5060008334860673,Comparação com a estatística oficial 30 m,-0.028609653601747165,NA
+"Mapa 1 km (majoritária): Usinas fotovoltaicas, 2024",%,0.004151711997931938,0.0046095648457297675,Comparação com a estatística oficial 30 m,4.5785284779782925e-4,NA
+"Mapa 1 km (majoritária): Outros (água, mineração e demais), 2024",%,2.342618403232468,2.154749360178472,Comparação com a estatística oficial 30 m,-0.187869043053996,NA
+"Mapa: área de usinas fotovoltaicas somada nos blocos, 2024",ha,35317.96425170284,37417.299083415266,Comparação com a estatística oficial 30 m,2099.3348317124255,NA

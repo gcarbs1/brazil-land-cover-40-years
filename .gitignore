@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Data: only the tables and reduced maps in data/processed/ are versioned.
+# The MapBiomas files in data/raw/ are downloaded or placed by hand (the 30 m
+# mosaics are about 1 to 2 GB each).
+data/*
+!data/processed/
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+
+# Local environment files
+.env
+.env.*
+!.env.example

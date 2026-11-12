@@ -1,0 +1,31 @@
+class_id,class_pt,class_en,group_id,group_pt,mapbiomas_level_0,mapbiomas_level_1
+3,Formação florestal,Forest formation,native,Vegetação nativa,Natural,1. Forest
+4,Formação savânica,Savanna formation,native,Vegetação nativa,Natural,1. Forest
+5,Mangue,Mangrove,native,Vegetação nativa,Natural,1. Forest
+6,Floresta alagável,Floodable forest,native,Vegetação nativa,Natural,1. Forest
+49,Restinga arbórea,Wooded sandbank vegetation,native,Vegetação nativa,Natural,1. Forest
+11,Campo alagado e área pantanosa,Wetland,native,Vegetação nativa,Natural,2. Non Forest Natural Formation
+12,Formação campestre,Grassland,native,Vegetação nativa,Natural,2. Non Forest Natural Formation
+32,Apicum,Hypersaline tidal flat,native,Vegetação nativa,Natural,2. Non Forest Natural Formation
+29,Afloramento rochoso,Rocky outcrop,native,Vegetação nativa,Natural,2. Non Forest Natural Formation
+50,Restinga herbácea,Herbaceous sandbank vegetation,native,Vegetação nativa,Natural,2. Non Forest Natural Formation
+15,Pastagem,Pasture,pasture,Pastagem,Antropic,3. Farming
+39,Soja,Soybean,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+20,Cana,Sugar cane,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+40,Arroz,Rice,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+62,Algodão,Cotton,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+41,Outras lavouras temporárias,Other temporary crops,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+46,Café,Coffee,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+47,Citrus,Citrus,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+35,Dendê,Palm oil,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+48,Outras lavouras perenes,Other perennial crops,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+9,Silvicultura,Forest plantation,agriculture,Agricultura e silvicultura,Antropic,3. Farming
+21,Mosaico de usos,Mosaic of uses,mosaic,Mosaico de usos,Antropic,3. Farming
+24,Área urbanizada,Urban area,urban,Área urbana,Antropic,4. Non vegetated area
+75,Usina fotovoltaica,Photovoltaic power plant,solar,Usinas fotovoltaicas,Antropic,4. Non vegetated area
+23,"Praia, duna e areal","Beach, dune and sand spot",other,"Outros (água, mineração e demais)",Natural,4. Non vegetated area
+30,Mineração,Mining,other,"Outros (água, mineração e demais)",Antropic,4. Non vegetated area
+25,Outras áreas não vegetadas,Other non-vegetated areas,other,"Outros (água, mineração e demais)",Natural/Antropic,4. Non vegetated area
+33,"Rio, lago e oceano","River, lake and ocean",other,"Outros (água, mineração e demais)",Natural,5. Water and Marine Environment
+31,Aquicultura,Aquaculture,other,"Outros (água, mineração e demais)",Antropic,5. Water and Marine Environment
+0,Não observado,Not observed,other,"Outros (água, mineração e demais)",Undefined,6. Not Observed
