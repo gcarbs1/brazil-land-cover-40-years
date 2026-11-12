@@ -460,14 +460,21 @@ print(validation |>
 
 
 # 6. Poster --------------------------------------------------------------------
+#
+# Editorial print on warm paper. Each map is the 1 km majority map shaded by
+# SRTM relief and lifted off the page by a soft shadow. Leader lines point at
+# real patches of each group and give its official 30 m share; the 2024 panel
+# adds where native vegetation retreated, by biome.
 
 suppressPackageStartupMessages({
   library(ggplot2)
   library(ggtext)
+  library(ggfx)
   library(patchwork)
   library(systemfonts)
   library(scales)
   library(geobr)
+  library(magick)
 })
 
 # 6.1 Fonts, palette, number formats
@@ -481,7 +488,7 @@ register_font(
 register_font(
   "Lato",
   plain  = file.path(font_dir, "Lato-Regular.ttf"),
-  bold   = file.path(font_dir, "Lato-Bold.ttf"),
+  bold   = file.path(font_dir, "Lato-Black.ttf"),
   italic = file.path(font_dir, "Lato-Italic.ttf")
 )
 serif <- "Libre Baskerville"
@@ -490,15 +497,15 @@ sans  <- "Lato"
 # Semantic colours, checked with colorspace (deutan, protan, tritan) and
 # CIEDE2000. Every pair stays apart under deutan and protan (dE >= 7.7). Under
 # tritan the weakest pairs are pasture/other (5.1) and native/solar (5.5);
-# solar markers also differ by shape (circles with a white rim). In greyscale
-# the three large groups (dark green, light ochre, mid orange) stay apart
-# (dE >= 10); the small light groups rely on the direct labels.
+# solar markers also differ by shape (circles). In greyscale the three large
+# groups (dark green, light ochre, mid orange) stay apart (dE >= 10); the small
+# light groups rely on the direct labels.
 pal <- list(
-  background = "#F6F3EC",
-  ink        = "#1E1D1B",
-  muted      = "#5F5A53",
-  rule       = "#CFC7B8",
-  box        = "#FFFFFF"
+  paper  = "#F3EEE4",
+  ink    = "#1E1D1B",
+  muted  = "#5F5A53",
+  rule   = "#C9C0B0",
+  shadow = "#3B2F22"
 )
 group_colors <- c(
   native      = "#1E5A3C",
@@ -514,13 +521,25 @@ pct <- function(x, accuracy = 0.1) {
   label_number(accuracy = accuracy, decimal.mark = ",", big.mark = ".",
                suffix = "%")(100 * x)
 }
-mha <- function(x, accuracy = 0.1) {
-  label_number(accuracy = accuracy, decimal.mark = ",", big.mark = ".")(x / 1e6)
+num <- function(x, accuracy = 0.1) {
+  label_number(accuracy = accuracy, decimal.mark = ",", big.mark = ".")(x)
+}
+# Letter-spaced capitals (hair spaces), for small labels.
+spaced <- function(x) {
+  map_chr(toupper(x), \(s) {
+    words <- strsplit(s, " ")[[1]]
+    letters <- map_chr(words, \(w) paste(strsplit(w, "")[[1]], collapse = "\u200a"))
+    paste(letters, collapse = "\u2002")
+  })
 }
 
-# 6.2 Geometry: Brazil, Caatinga, maps in an equal-area projection
+# 6.2 Geometry: Brazil, Caatinga, maps and relief in an equal-area projection
 
+# Oceanic islands far off the coast (Trindade and Martim Vaz, east of 31 W)
+# are dropped from the outline: at this scale they read as stray dots.
 brazil_sf <- read_country(year = 2020, showProgress = FALSE) |>
+  st_cast("POLYGON") |>
+  (\(d) d[st_coordinates(st_centroid(st_geometry(d)))[, 1] <= -31, ])() |>
   st_transform(map_crs)
 caatinga_sf <- read_biomes(year = 2019, showProgress = FALSE) |>
   filter(name_biome == "Caatinga") |>
@@ -530,14 +549,49 @@ albers_template <- rast(ext(project(maps[[1]], map_crs)), crs = map_crs,
                         resolution = map_resolution_m)
 maps_albers <- map(maps, \(r) project(r[["group"]], albers_template,
                                       method = "near"))
+map_ext <- unname(as.vector(ext(albers_template)))  # xmin, xmax, ymin, ymax
+map_w <- diff(map_ext[1:2])
+map_h <- diff(map_ext[3:4])
 
-# Colour matrix for annotation_raster (rows from north to south).
+# Relief: SRTM elevation on the same 1 km grid (gee/download_coverage_col10.py
+# --dem), exaggerated 15 times because Brazil is flat at this scale, and lit
+# from three directions around the north-west so no slope goes fully black.
+dem_file <- processed_path("dem_srtm_1km.tif")
+if (!file.exists(dem_file)) {
+  dem_tiles <- list.files(file.path(raw_dir, "gee_tiles_dem"),
+                          pattern = "^tile_.*\\.tif$", full.names = TRUE)
+  writeRaster(vrt(dem_tiles), dem_file, datatype = "INT2S",
+              gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=9"),
+              overwrite = TRUE)
+}
+dem <- project(rast(dem_file), albers_template, method = "bilinear") * 15
+slope <- terrain(dem, "slope", unit = "radians")
+aspect <- terrain(dem, "aspect", unit = "radians")
+light_angle <- 40
+hillshade <- (shade(slope, aspect, light_angle, 270) +
+                2 * shade(slope, aspect, light_angle, 315) +
+                shade(slope, aspect, light_angle, 360)) / 4
+# 1 on flat ground, below 1 on slopes facing away from the light.
+relief <- as.matrix(hillshade / sin(light_angle * pi / 180), wide = TRUE)
+
+# Colour matrix for annotation_raster (rows from north to south), with relief:
+# shaded slopes darken the colour, lit slopes mix it towards white. Water is
+# left flat.
+relief_strength <- 0.55
 color_matrix <- function(r) {
   codes <- as.matrix(r, wide = TRUE)
-  cols <- unname(group_colors[groups$group_id])[codes]
-  matrix(cols, nrow = nrow(codes))
+  codes[!codes %in% groups$group_order] <- NA   # no-data flag of INT4U
+  ok <- !is.na(codes)
+  base <- col2rgb(group_colors[groups$group_id])[, codes[ok]] / 255
+  f <- 1 + relief_strength * (relief[ok] - 1)
+  f[is.na(f) | codes[ok] == group_code[["other"]]] <- 1
+  f <- pmin(pmax(f, 0.45), 1.35)
+  shaded <- base * rep(pmin(f, 1), each = 3) +
+    (1 - base) * rep(pmax(f - 1, 0), each = 3)
+  out <- matrix(NA_character_, nrow(codes), ncol(codes))
+  out[ok] <- rgb(shaded[1, ], shaded[2, ], shaded[3, ])
+  out
 }
-map_ext <- unname(as.vector(ext(albers_template)))  # xmin, xmax, ymin, ymax
 
 # 6.3 Solar markers: photovoltaic area summed in 25 km blocks
 
@@ -565,18 +619,18 @@ solar_points <- {
 
 label_spec <- tribble(
   ~year, ~group_id,     ~lon,   ~lat,  ~side,   ~label_y,
-  1985,  "other",       -55.0,  -2.2,  "left",  0.84,
-  1985,  "native",      -64.5,  -4.0,  "left",  0.62,
-  1985,  "agriculture", -52.5, -24.8,  "left",  0.16,
-  1985,  "pasture",     -50.0, -17.5,  "right", 0.48,
-  1985,  "mosaic",      -43.5, -20.5,  "right", 0.30,
-  1985,  "urban",       -46.63,-23.55, "right", 0.12,
-  2024,  "other",       -55.0,  -2.2,  "left",  0.84,
-  2024,  "native",      -64.5,  -4.0,  "left",  0.62,
-  2024,  "agriculture", -55.8, -13.0,  "left",  0.36,
-  2024,  "pasture",     -50.0, -17.5,  "right", 0.48,
+  1985,  "other",       -55.0,  -2.2,  "left",  0.83,
+  1985,  "native",      -64.5,  -4.0,  "left",  0.64,
+  1985,  "agriculture", -52.5, -24.8,  "left",  0.20,
+  1985,  "pasture",     -50.0, -17.5,  "right", 0.50,
+  1985,  "mosaic",      -43.5, -20.5,  "right", 0.32,
+  1985,  "urban",       -46.63,-23.55, "right", 0.14,
+  2024,  "other",       -55.0,  -2.2,  "left",  0.83,
+  2024,  "native",      -64.5,  -4.0,  "left",  0.64,
+  2024,  "agriculture", -55.8, -13.0,  "left",  0.42,
+  2024,  "pasture",     -50.0, -17.5,  "right", 0.46,
   2024,  "mosaic",      -43.5, -20.5,  "right", 0.30,
-  2024,  "urban",       -46.63,-23.55, "right", 0.12
+  2024,  "urban",       -46.63,-23.55, "right", 0.14
 )
 
 coarse_maps <- map(maps_albers, \(r) aggregate(r, fact = 10, fun = "modal",
@@ -613,195 +667,240 @@ stopifnot(all(map2_lgl(
     group_code[[labels$group_id[i]]]
 )))
 
-# 6.5 One panel per year
-
-x_pad <- 0.44 * diff(map_ext[1:2])
-panel_xlim <- c(map_ext[1] - x_pad, map_ext[2] + x_pad)
-panel_ylim <- c(map_ext[3] - 0.02 * diff(map_ext[3:4]),
-                map_ext[4] + 0.06 * diff(map_ext[3:4]))
-label_x <- c(left  = map_ext[1] - 0.10 * diff(map_ext[1:2]),
-             right = map_ext[2] + 0.10 * diff(map_ext[1:2]))
-
-summary_box <- list(
-  "1985" = list(
-    number = pct(group_areas$share[group_areas$year == 1985 &
-                                     group_areas$group_id == "native"], 1),
-    text = "do país era coberto por vegetação nativa",
-    detail = str_glue("({mha(group_areas$area_ha[group_areas$year == 1985 & ",
-                      "group_areas$group_id == 'native'])} milhões de hectares)")
-  ),
-  "2024" = list(
-    number = pct(headline$natural_loss_share, 1),
-    text = "do país convertido em 40 anos",
-    detail = str_glue("({mha(headline$natural_loss_ha)} milhões de hectares)")
-  )
-)
-
 # Change in percentage points, 1985 to 2024, shown next to the 2024 shares.
 change_pp <- group_areas |>
   select(year, group_id, share) |>
   pivot_wider(names_from = year, values_from = share, names_prefix = "y") |>
   mutate(pp = 100 * (.data[[str_c("y", years[2])]] -
                        .data[[str_c("y", years[1])]]),
-         text = str_c(if_else(pp >= 0, "+", "−"),
-                      label_number(accuracy = 0.1, decimal.mark = ",")(abs(pp)),
-                      " p.p.")) |>
+         text = str_c(if_else(pp >= 0, "+", "−"), num(abs(pp)), " p.p.")) |>
   (\(d) set_names(d$text, d$group_id))()
+
+# Short label names on the poster.
+short_name <- c(
+  native = "Vegetação nativa", pasture = "Pastagem",
+  agriculture = "Agricultura e silvicultura", mosaic = "Mosaico de usos",
+  urban = "Área urbana", solar = "Usinas fotovoltaicas",
+  other = "Água, mineração e outros"
+)
+
+# 6.5 Panel furniture: layout and biome chart
+
+x_pad <- 0.46 * map_w
+panel_xlim <- c(map_ext[1] - x_pad, map_ext[2] + x_pad)
+panel_ylim <- c(map_ext[3] - 0.05 * map_h, map_ext[4] + 0.05 * map_h)
+label_x <- c(left = map_ext[1] - 0.09 * map_w, right = map_ext[2] + 0.09 * map_w)
+y_at <- function(f) map_ext[3] + f * map_h
+
+# Native vegetation lost per biome, 1985 to 2024 (official statistics).
+biome_loss <- biome_areas |>
+  select(biome, year, native_ha) |>
+  pivot_wider(names_from = year, values_from = native_ha, names_prefix = "y") |>
+  mutate(loss_mha = (.data[[str_c("y", years[1])]] -
+                       .data[[str_c("y", years[2])]]) / 1e6) |>
+  arrange(desc(loss_mha))
+
+biome_chart <- function() {
+  x0 <- panel_xlim[1]                         # biome names, left-aligned
+  xb <- x0 + 0.26 * map_w                      # bars start
+  bar_max <- 0.30 * map_w
+  top <- y_at(0.255)
+  step <- 0.036 * map_h
+  rows <- biome_loss |>
+    mutate(
+      i = row_number(),
+      y = top - 0.095 * map_h - (i - 1) * step,
+      xend = xb + pmax(loss_mha, 0) / max(loss_mha) * bar_max,
+      value = if_else(loss_mha >= 0, num(loss_mha),
+                      str_c("+", num(-loss_mha), " (ganho)"))
+    )
+  list(
+    annotate("text", x = x0, y = top, hjust = 0, vjust = 1,
+             label = spaced("Onde a vegetação nativa recuou"),
+             family = sans, fontface = "bold", size = 8.5 / .pt,
+             color = pal$ink),
+    annotate("text", x = x0, y = top - 0.028 * map_h, hjust = 0, vjust = 1,
+             label = "perda líquida por bioma, em milhões de hectares",
+             family = sans, size = 9.5 / .pt, color = pal$muted),
+    geom_text(data = rows, aes(x = x0, y = y, label = biome), hjust = 0,
+              family = sans, size = 10 / .pt, color = pal$ink),
+    geom_segment(data = filter(rows, loss_mha > 0),
+                 aes(x = xb, xend = xend, y = y, yend = y),
+                 linewidth = 2.6, color = group_colors[["native"]],
+                 lineend = "butt"),
+    geom_text(data = rows,
+              aes(x = if_else(loss_mha > 0, xend, xb), y = y, label = value),
+              hjust = 0, nudge_x = 0.012 * map_w, family = serif,
+              size = 10 / .pt, color = pal$ink)
+  )
+}
+
+# 6.6 One panel per year
 
 make_panel <- function(year) {
   y <- as.character(year)
+  is_last <- year == years[2]
   lab <- labels |>
     filter(year == !!year) |>
     mutate(
       label_x = label_x[side],
-      label_y = map_ext[3] + label_y * diff(map_ext[3:4]),
+      label_y = y_at(label_y),
       hjust = if_else(side == "left", 1, 0),
-      # Swatch between the leader line and the text, with a dark rim so
-      # light colours (water) stay visible on the background.
-      swatch_x = label_x + if_else(side == "left", 0.028, -0.028) *
-        diff(map_ext[1:2]),
-      line_end = swatch_x + if_else(side == "left", 0.014, -0.014) *
-        diff(map_ext[1:2]),
-      delta = if (y == as.character(years[2])) str_glue(
-        " <span style='font-family:{sans};font-size:10.5pt;color:{pal$muted}'>",
+      dir = if_else(side == "left", 1, -1),
+      swatch_x = label_x + dir * 0.026 * map_w,
+      line_end = swatch_x + dir * 0.014 * map_w,
+      elbow_x = line_end + dir * 0.045 * map_w,
+      delta = if (is_last) str_glue(
+        "\u2002<span style='font-family:{sans};font-size:10pt;color:{pal$muted}'>",
         "{change_pp[group_id]}</span>"
       ) else "",
       text = str_glue(
-        "<span style='font-family:\"{serif}\";font-size:22pt'>{pct(share)}</span>",
-        "{delta}<br>",
-        "<span style='font-family:{sans};font-size:10.5pt;color:{pal$muted}'>",
-        "{group_pt}</span>"
-      )
+        "<span style='font-family:\"{serif}\";font-size:23pt'>{pct(share)}</span>",
+        "{delta}"
+      ),
+      name = spaced(short_name[group_id])
     )
-  box <- summary_box[[y]]
+  # Leader lines: horizontal from the swatch, then straight to the anchor.
+  leaders <- lab |>
+    select(group_id, line_end, elbow_x, label_y, anchor_x, anchor_y) |>
+    pmap(\(group_id, line_end, elbow_x, label_y, anchor_x, anchor_y)
+         tibble(group_id, x = c(line_end, elbow_x, anchor_x),
+                y = c(label_y, label_y, anchor_y))) |>
+    list_rbind()
+
 
   p <- ggplot() +
-    annotation_raster(color_matrix(maps_albers[[y]]),
-                      xmin = map_ext[1], xmax = map_ext[2],
-                      ymin = map_ext[3], ymax = map_ext[4],
-                      interpolate = FALSE) +
-    geom_sf(data = brazil_sf, fill = NA, color = pal$ink, linewidth = 0.25) +
-    geom_segment(data = lab,
-                 aes(x = line_end, y = label_y, xend = anchor_x, yend = anchor_y),
-                 color = pal$ink, linewidth = 0.3) +
-    geom_point(data = lab, aes(x = anchor_x, y = anchor_y),
-               shape = 21, size = 2.2, stroke = 0.6, fill = pal$ink,
-               color = "white") +
-    geom_point(data = lab, aes(x = swatch_x, y = label_y, fill = group_id),
-               shape = 22, size = 4.2, stroke = 0.35, color = pal$ink) +
-    scale_fill_manual(values = group_colors, guide = "none") +
-    geom_richtext(data = lab,
-                  aes(x = label_x, y = label_y, label = text, hjust = hjust),
-                  vjust = 0.5, fill = NA, label.color = NA,
-                  label.padding = unit(0, "pt"), color = pal$ink,
-                  lineheight = 1.15) +
-    annotate("text", x = panel_xlim[1], y = panel_ylim[2], label = y,
-             family = serif, fontface = "bold", size = 30 / .pt * 1.6,
-             hjust = 0, vjust = 1, color = pal$ink) +
-    annotate("textbox", x = panel_xlim[2], y = panel_ylim[2],
-             label = str_glue(
-               "<span style='font-family:\"{serif}\";font-size:30pt'>",
-               "**{box$number}**</span><br>",
-               "<span style='font-family:{sans};font-size:12.5pt'>{box$text}</span><br>",
-               "<span style='font-family:{sans};font-size:10.5pt;color:{pal$muted}'>",
-               "{box$detail}</span>"
-             ),
-             hjust = 1, vjust = 1, halign = 0, width = unit(7.4, "cm"),
-             fill = pal$box, box.colour = pal$ink, box.size = 0.4,
-             box.r = unit(0, "pt"), box.padding = unit(c(10, 14, 11, 14), "pt"),
-             color = pal$ink, lineheight = 1.25)
+    # Map lifted off the paper by a soft shadow.
+    with_shadow(
+      annotation_raster(color_matrix(maps_albers[[y]]),
+                        xmin = map_ext[1], xmax = map_ext[2],
+                        ymin = map_ext[3], ymax = map_ext[4],
+                        interpolate = FALSE),
+      colour = pal$shadow, x_offset = 14, y_offset = 14, sigma = 18
+    ) +
+    geom_sf(data = brazil_sf, fill = NA, color = pal$ink, linewidth = 0.2)
 
-  if (year == years[2]) {
-    solar_total <- headline$solar_2024_ha
-    solar_label_y <- map_ext[3] + 0.70 * diff(map_ext[3:4])
-    # The leader points at the largest photovoltaic cluster in the Caatinga.
+  if (is_last) {
+    solar_label_y <- y_at(0.655)
     solar_target <- solar_points |>
       st_as_sf(coords = c("x", "y"), crs = map_crs, remove = FALSE) |>
       st_filter(caatinga_sf) |>
       slice_max(solar_ha, n = 1)
+    solar_line <- tibble(
+      x = c(label_x[["right"]] - 0.040 * map_w,
+            label_x[["right"]] - 0.085 * map_w, solar_target$x),
+      y = c(solar_label_y, solar_label_y, solar_target$y)
+    )
     p <- p +
       geom_sf(data = caatinga_sf, fill = NA, color = "white",
               linewidth = 0.5, linetype = "22") +
       geom_point(data = solar_points, aes(x = x, y = y, size = solar_ha),
                  shape = 21, fill = group_colors[["solar"]], color = "white",
-                 stroke = 0.35, alpha = 0.95) +
+                 stroke = 0.35) +
       scale_size_area(max_size = 4.2, guide = "none") +
-      annotate("point", x = label_x[["right"]] - 0.028 * diff(map_ext[1:2]),
-               y = solar_label_y, shape = 21, size = 4.2, stroke = 0.35,
+      geom_path(data = solar_line, aes(x, y), color = "white",
+                linewidth = 1.1, alpha = 0.7) +
+      geom_path(data = solar_line, aes(x, y), color = pal$ink,
+                linewidth = 0.35) +
+      annotate("point", x = label_x[["right"]] - 0.026 * map_w,
+               y = solar_label_y, shape = 21, size = 4.4, stroke = 0.35,
                fill = group_colors[["solar"]], color = pal$ink) +
-      annotate("segment",
-               x = label_x[["right"]] - 0.042 * diff(map_ext[1:2]),
-               y = solar_label_y, xend = solar_target$x, yend = solar_target$y,
-               color = pal$ink, linewidth = 0.3) +
-      annotate("richtext",
-               x = label_x[["right"]], y = solar_label_y,
+      annotate("richtext", x = label_x[["right"]],
+               y = solar_label_y - 0.012 * map_h,
                label = str_glue(
-                 "<span style='font-family:\"{serif}\";font-size:22pt'>",
+                 "<span style='font-family:\"{serif}\";font-size:23pt'>",
                  "{pct(headline$solar_caatinga_share, 1)}</span>",
-                 "<span style='font-family:{sans};font-size:10.5pt'> na Caatinga</span><br>",
-                 "<span style='font-family:{sans};font-size:10.5pt;color:{pal$muted}'>",
-                 "Usinas fotovoltaicas: ",
-                 "{label_number(big.mark = '.')(round(solar_total, -2))} ha<br>",
-                 "{pct(solar_total / brazil_area_ha, 0.001)} do país</span>"
+                 "<span style='font-family:{sans};font-size:10pt;color:{pal$muted}'>",
+                 "\u2002na Caatinga</span>"
                ),
-               hjust = 0, vjust = 0.5, fill = NA, label.color = NA,
-               label.padding = unit(0, "pt"), color = pal$ink, lineheight = 1.15)
+               hjust = 0, vjust = 0, fill = NA, label.color = NA,
+               label.padding = unit(0, "pt"), color = pal$ink) +
+      annotate("text", x = label_x[["right"]], y = solar_label_y - 0.022 * map_h,
+               label = spaced(short_name[["solar"]]), hjust = 0, vjust = 1,
+               family = sans, fontface = "bold", size = 8 / .pt,
+               color = pal$muted) +
+      annotate("text", x = label_x[["right"]], y = solar_label_y - 0.050 * map_h,
+               label = str_glue(
+                 "{label_number(big.mark = '.')(round(headline$solar_2024_ha, -2))}",
+                 " ha, {pct(headline$solar_2024_ha / brazil_area_ha, 0.001)} do país"
+               ),
+               hjust = 0, vjust = 1, family = sans, size = 9.5 / .pt,
+               color = pal$muted) +
+      biome_chart()
   }
 
   p +
+    # Leader lines with a light halo so they read over the dark green.
+    geom_path(data = leaders, aes(x, y, group = group_id), color = "white",
+              linewidth = 1.1, alpha = 0.7, lineend = "round") +
+    geom_path(data = leaders, aes(x, y, group = group_id), color = pal$ink,
+              linewidth = 0.35, lineend = "round") +
+    geom_point(data = lab, aes(x = anchor_x, y = anchor_y), shape = 21,
+               size = 2.3, stroke = 0.7, fill = "white", color = pal$ink) +
+    geom_point(data = lab, aes(x = swatch_x, y = label_y, fill = group_id),
+               shape = 22, size = 4.4, stroke = 0.35, color = pal$ink) +
+    scale_fill_manual(values = group_colors, guide = "none") +
+    geom_richtext(data = lab,
+                  aes(x = label_x, y = label_y - 0.012 * map_h, label = text,
+                      hjust = hjust),
+                  vjust = 0, fill = NA, label.color = NA,
+                  label.padding = unit(0, "pt"), color = pal$ink) +
+    geom_text(data = lab,
+              aes(x = label_x, y = label_y - 0.022 * map_h, label = name,
+                  hjust = hjust),
+              vjust = 1, family = sans, fontface = "bold", size = 8 / .pt,
+              color = pal$muted) +
+    # Year, top left.
+    annotate("text", x = panel_xlim[1], y = panel_ylim[2],
+             label = y, family = serif, fontface = "bold", size = 58 / .pt,
+             hjust = 0, vjust = 1, color = pal$ink) +
     coord_sf(crs = map_crs, xlim = panel_xlim, ylim = panel_ylim,
              expand = FALSE, datum = NA, clip = "off") +
     theme_void() +
-    theme(plot.background = element_rect(fill = pal$background, color = NA),
-          plot.margin = margin(4, 0, 4, 0))
+    theme(plot.background = element_rect(fill = pal$paper, color = NA),
+          plot.margin = margin(6, 0, 6, 0))
 }
 
 panels <- map(years, make_panel)
 
-# 6.6 Composition and export
+# 6.7 Composition, export and paper grain
 
-caption_text <- str_glue(
-  "**Fonte:** MapBiomas, Coleção 10 (agosto de 2025). Percentuais e hectares ",
-  "vêm das estatísticas oficiais de área por bioma e UF, sobre os ",
-  "{mha(brazil_area_ha)} milhões de hectares do país; o desenho usa os mapas ",
-  "anuais de 30 m (Google Earth Engine), com o grupo majoritário em células de ",
-  "cerca de 1 km (34 × 34 pixels) e as usinas fotovoltaicas somadas em células ",
-  "de 25 km.<br>",
-  "**Agregação das 30 classes:** vegetação nativa reúne formações florestal, ",
-  "savânica e campestre, floresta alagável, mangue, campo alagado, restingas, ",
-  "apicum e afloramento rochoso; agricultura inclui lavouras temporárias e ",
-  "perenes e silvicultura; outros reúne rios, lagos e oceano, aquicultura, ",
-  "praias e dunas, mineração, outras áreas não vegetadas e áreas não ",
-  "observadas. Usinas fotovoltaicas, classe que só aparece nos anos recentes, ",
-  "estão à parte. **Convertido** é a perda líquida das áreas naturais do ",
-  "MapBiomas (vegetação nativa, água e praias e dunas): ",
-  "{mha(headline$natural_loss_ha)} Mha; só a vegetação nativa perdeu ",
-  "{mha(-change(native_classes))} Mha."
-)
+caption_text <- "**Fonte:** MapBiomas, Coleção 10 (2025)"
 
 poster <- panels[[1]] / panels[[2]] +
   plot_annotation(
-    title = "O Brasil em 40 anos: do que é feito o território",
-    subtitle = "Cobertura e uso da terra, 1985 e 2024",
+    title = "**Cobertura e uso da terra no Brasil**",
+    subtitle = "Parcela do território ocupada por cada grupo de classes, 1985 e 2024",
     caption = caption_text,
     theme = theme(
-      plot.background = element_rect(fill = pal$background, color = NA),
-      plot.title = element_text(family = serif, face = "bold", size = 34,
-                                color = pal$ink, margin = margin(6, 0, 8, 0)),
-      plot.subtitle = element_text(family = sans, size = 20, color = pal$muted,
-                                   margin = margin(0, 0, 22, 0)),
+      plot.background = element_rect(fill = pal$paper, color = NA),
+      plot.title = element_markdown(family = serif, size = 40, color = pal$ink,
+                                    lineheight = 1.05,
+                                    margin = margin(4, 0, 12, 0)),
+      plot.subtitle = element_text(family = sans, size = 17, color = pal$muted,
+                                   margin = margin(0, 0, 18, 0)),
       plot.caption = element_textbox_simple(
-        family = sans, size = 9.5, color = pal$muted, lineheight = 1.35,
-        margin = margin(14, 0, 0, 0), padding = margin(10, 0, 0, 0),
-        box.colour = pal$rule, linetype = 0
+        family = sans, size = 9.5, color = pal$muted, lineheight = 1.4,
+        margin = margin(16, 0, 0, 0), padding = margin(10, 0, 0, 0),
+        box.colour = pal$rule, linetype = 0, halign = 0
       ),
       plot.title.position = "plot",
       plot.caption.position = "plot",
-      plot.margin = margin(36, 40, 28, 40)
+      plot.margin = margin(40, 44, 30, 44)
     )
   )
 
 ggsave(poster_file, poster, width = poster_width_cm, height = poster_height_cm,
        units = "cm", dpi = poster_dpi, device = ragg::agg_png,
-       bg = pal$background)
+       bg = pal$paper)
+
+# Paper grain: seeded Gaussian noise blended with soft light, so the print
+# keeps its flat colours but loses the digital sheen. Deterministic.
+img <- image_read(poster_file)
+info <- image_info(img)
+set.seed(1985)
+grain <- array(pmin(pmax(rnorm(info$width * info$height, 0.5, 0.06), 0), 1),
+               dim = c(info$height, info$width, 1))
+img <- image_composite(img, image_read(grain), operator = "SoftLight")
+image_write(img, poster_file, format = "png", density = poster_dpi)
 message("Poster written to ", poster_file)

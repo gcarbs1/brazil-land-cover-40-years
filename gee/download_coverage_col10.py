@@ -11,6 +11,10 @@ Same computation as gee/export_coverage_col10.js, but fetched directly with
 Writes data/raw/mapbiomas/gee_tiles_<year>/tile_<row>_<col>.tif, two bands:
   1 group     majority group in blocks of 34 x 34 pixels of 30 m (0 = no data)
   2 solar_px  number of 30 m photovoltaic pixels in the block
+With --dem it also fetches data/raw/mapbiomas/gee_tiles_dem/, the SRTM
+elevation (CGIAR SRTM 90 m v4, metres) on the same grid, used only for the
+hillshade under the maps.
+
 R/land_cover_1985_2024.R mosaics the tiles.
 """
 
@@ -54,6 +58,29 @@ def reduced_image(year):
     return majority.addBands(solar).unmask(0).toInt32()
 
 
+def dem_image():
+    # Mean elevation of the SRTM pixels in each cell.
+    return (ee.Image("CGIAR/SRTM90_V4").select("elevation")
+            .reduceResolution(reducer=ee.Reducer.mean(), maxPixels=2048)
+            .unmask(0).toInt16())
+
+
+def fetch_all(image, label, out_dir, tiles, n_rows, n_cols, workers):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    todo = [(r, c) for r, c in tiles
+            if not (out_dir / f"tile_{r:02d}_{c:02d}.tif").exists()]
+    print(f"{label}: {len(todo)} of {len(tiles)} tiles to fetch", flush=True)
+    with cf.ThreadPoolExecutor(workers) as pool:
+        jobs = [pool.submit(fetch, image, r, c, n_rows, n_cols,
+                            out_dir / f"tile_{r:02d}_{c:02d}.tif")
+                for r, c in todo]
+        for i, job in enumerate(cf.as_completed(jobs), 1):
+            job.result()
+            if i % 25 == 0:
+                print(f"{label}: {i} of {len(todo)}", flush=True)
+    print(f"{label}: done", flush=True)
+
+
 def fetch(image, row, col, n_rows, n_cols, out_file, attempts=4):
     width = min(TILE, n_cols - col * TILE)
     height = min(TILE, n_rows - row * TILE)
@@ -86,6 +113,8 @@ def main():
     parser.add_argument("--years", nargs="+", type=int, default=[1985, 2024])
     parser.add_argument("--out", default="data/raw/mapbiomas")
     parser.add_argument("--workers", type=int, default=12)
+    parser.add_argument("--dem", action="store_true",
+                        help="also fetch SRTM elevation for the hillshade")
     args = parser.parse_args()
 
     ee.Initialize(project=args.project)
@@ -94,23 +123,13 @@ def main():
     tiles = [(r, c) for r in range(math.ceil(n_rows / TILE))
              for c in range(math.ceil(n_cols / TILE))]
 
+    out = pathlib.Path(args.out)
     for year in args.years:
-        out_dir = pathlib.Path(args.out) / f"gee_tiles_{year}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        image = reduced_image(year)
-        todo = [(r, c) for r, c in tiles
-                if not (out_dir / f"tile_{r:02d}_{c:02d}.tif").exists()]
-        print(f"{year}: {len(todo)} of {len(tiles)} tiles to fetch", flush=True)
-        with cf.ThreadPoolExecutor(args.workers) as pool:
-            jobs = [pool.submit(fetch, image, r, c, n_rows, n_cols,
-                                out_dir / f"tile_{r:02d}_{c:02d}.tif")
-                    for r, c in todo]
-            for i, job in enumerate(cf.as_completed(jobs), 1):
-                job.result()
-                if i % 25 == 0:
-                    print(f"{year}: {i} of {len(todo)}", flush=True)
-        print(f"{year}: done", flush=True)
-
+        fetch_all(reduced_image(year), str(year), out / f"gee_tiles_{year}",
+                  tiles, n_rows, n_cols, args.workers)
+    if args.dem:
+        fetch_all(dem_image(), "dem", out / "gee_tiles_dem",
+                  tiles, n_rows, n_cols, args.workers)
 
 if __name__ == "__main__":
     main()
